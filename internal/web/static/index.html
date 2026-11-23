@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CircusNet · 马戏团网络控制面</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #151b23; --panel2: #1b232d; --line: #263140;
+    --text: #d9e2ec; --muted: #8b9bb0; --accent: #f5a524; --accent2: #4cc9f0;
+    --ok: #35c27a; --bad: #ef5b5b; --warn: #e8c15a; --host: #4cc9f0;
+    --group: #c792ea; --prefix: #f5a524; --member: #35c27a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 20;
+  }
+  header h1 { font-size: 15px; margin: 0; letter-spacing: .5px; }
+  header h1 .tent { color: var(--accent); }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); }
+  .pill b { color: var(--text); font-weight: 600; }
+  .pill.ok b { color: var(--ok); }
+  .pill.bad b { color: var(--bad); }
+  .spacer { flex: 1; }
+  button, select, input {
+    font: inherit; color: var(--text); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #1a1206; border-color: var(--accent); font-weight: 600; }
+  button.danger { color: var(--bad); }
+  main { padding: 12px 16px 40px; display: flex; flex-direction: column; gap: 12px; }
+  section {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+    overflow: hidden;
+  }
+  section > h2 {
+    margin: 0; padding: 8px 12px; font-size: 12px; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--muted); background: var(--panel2);
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px;
+  }
+  section > h2 .hint { text-transform: none; letter-spacing: 0; color: #6f8098; font-weight: 400; }
+  .body { padding: 10px 12px; }
+  .cols { display: grid; gap: 12px; }
+  .cols.two { grid-template-columns: minmax(280px, 380px) 1fr; }
+  @media (max-width: 1000px) { .cols.two { grid-template-columns: 1fr; } }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #1e2834; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--panel); }
+  tbody tr:hover { background: #1a2330; }
+  tbody tr.sel { background: #24303f; }
+  .scroll { max-height: 360px; overflow: auto; }
+  .tag {
+    display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 11px;
+    border: 1px solid currentColor; opacity: .95;
+  }
+  .t-host { color: var(--host); } .t-prefix { color: var(--prefix); }
+  .t-group { color: var(--group); } .t-member { color: var(--member); }
+  .t-evp n, .src-evpn { color: var(--accent2); }
+  .muted { color: var(--muted); }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .swlist { display: flex; flex-wrap: wrap; gap: 4px; max-height: 420px; overflow: auto; }
+  .swlist button { padding: 2px 7px; font-size: 12px; }
+  .swlist button.up { border-color: #2d4a3a; }
+  .swlist button.down { color: var(--bad); border-color: #4a2d2d; }
+  .swlist button.active { outline: 2px solid var(--accent); }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+  .timeline { display: flex; flex-direction: column; gap: 0; }
+  .ev { display: grid; grid-template-columns: 64px 88px 1fr; gap: 8px; padding: 4px 6px; border-left: 2px solid var(--line); }
+  .ev.move { border-left-color: var(--accent2); }
+  .ev.link-down, .ev.access-down, .ev.switch-down { border-left-color: var(--bad); }
+  .ev.link-up, .ev.access-up, .ev.switch-up, .ev.reboot { border-left-color: var(--ok); }
+  .ev.vn-join, .ev.vn-leave { border-left-color: var(--group); }
+  .ev.converged { border-left-color: var(--accent); }
+  .ev .k { color: var(--muted); }
+  .ev .d { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .path { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .path .node { padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel2); }
+  .path .arrow { color: var(--muted); }
+  .path .node.egress { border-color: var(--ok); color: var(--ok); }
+  .path .node.bad { border-color: var(--bad); color: var(--bad); }
+  .kv { display: grid; grid-template-columns: 120px 1fr; gap: 2px 10px; }
+  .kv .k { color: var(--muted); }
+  .subgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 900px) { .subgrid { grid-template-columns: 1fr; } }
+  .empty { color: var(--muted); padding: 8px 2px; }
+  .num { text-align: right; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 11px; }
+  .bar { height: 6px; background: #222c39; border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--ok); }
+  .err { color: var(--bad); }
+  #toast { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 50; }
+  #toast div { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 6px 10px; border-radius: 6px; max-width: 420px; }
+  #toast div.bad { border-left-color: var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎪 Circa<span class="tent">Net</span> 控制面</h1>
+  <div class="pills" id="pills"></div>
+  <div class="spacer"></div>
+  <button id="btn-random">随机变更</button>
+  <button id="btn-move">挪一批设备</button>
+  <button id="btn-restart">重启一台交换机</button>
+  <button id="btn-verify">全网校验</button>
+  <button id="btn-refresh" title="重新拉取快照">刷新</button>
+</header>
+
+<main>
+  <section>
+    <h2>A · 交换机地址表 <span class="hint">每台交换机学到的设备硬件地址与网络地址，以及每条路由的类型和来源</span></h2>
+    <div class="body cols two">
+      <div>
+        <div class="toolbar">
+          <input id="sw-filter" placeholder="过滤交换机，如 sw012" size="16">
+          <span class="muted" id="sw-count"></span>
+        </div>
+        <div class="swlist" id="switches"></div>
+      </div>
+      <div id="switch-detail"><div class="empty">选择左侧交换机查看地址表。</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>B · 路由类型与来源 <span class="hint">host / prefix / group / member，RD 与 RT 由交换机标识和网络编号自动生成</span></h2>
+    <div class="body">
+      <div class="toolbar">
+        <select id="route-type"><option value="">全部类型</option><option value="host">host 主机</option><option value="prefix">prefix 外部前缀</option><option value="group">group 冗余组</option><option value="member">member 成员</option></select>
+        <input id="route-filter" placeholder="按 MAC / IP / 前缀 / origin 过滤" size="28">
+        <span class="legend">
+          <span class="t-host">■ host</span><span class="t-prefix">■ prefix</span>
+          <span class="t-group">■ group</span><span class="t-member">■ member</span>
+        </span>
+        <span class="muted" id="route-count"></span>
+      </div>
+      <div class="scroll" style="max-height:380px">
+        <table>
+          <thead><tr><th>类型</th><th>VN</th><th>RD</th><th>RT</th><th>来源</th><th>发起交换机</th><th>目的</th><th>序号</th><th>学习自</th></tr></thead>
+          <tbody id="routes"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>C · 隧道列表 <span class="hint">隧道来自成员路由，交换机退出虚拟网络后随之拆除</span></h2>
+    <div class="body">
+      <div class="toolbar"><input id="tun-filter" placeholder="按本地/远端交换机或 VN 过滤" size="28"><span class="muted" id="tun-count"></span></div>
+      <div class="scroll" style="max-height:320px">
+        <table>
+          <thead><tr><th>本地</th><th>远端</th><th>VN</th><th>下一跳</th><th class="num">跳数</th><th>物理路径</th><th>状态</th><th></th></tr></thead>
+          <tbody id="tunnels"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>D · 设备迁移与网络事件时间线 <span class="hint">挪动设备、断链路、交换机重启、加入/退出虚拟网络</span></h2>
+    <div class="body">
+      <div class="timeline scroll" id="timeline" style="max-height:320px"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>E · 转发路径校验 <span class="hint">输入两台设备的 MAC 或 IP，按当前真实位置推导期望路径并逐跳核对</span></h2>
+    <div class="body">
+      <div class="cols two">
+        <div>
+          <div class="toolbar">
+            <input id="trace-src" placeholder="源 MAC / IP" size="18">
+            <input id="trace-dst" placeholder="目的 MAC / IP" size="18">
+            <button class="primary" id="btn-trace">追踪</button>
+          </div>
+          <div id="trace-result"><div class="empty">尚未追踪。</div></div>
+        </div>
+        <div>
+          <div class="toolbar"><button id="btn-group-down">断一条冗余接入链路</button><button id="btn-group-up">恢复该链路</button></div>
+          <div id="group-panel" class="scroll" style="max-height:300px"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+let SNAP = null;
+let SEL = null;
+let TRACE_GROUP = null;
+
+function toast(msg, bad) {
+  const d = el("div", bad ? "bad" : "", msg);
+  $("#toast").append(d);
+  setTimeout(() => d.remove(), 5200);
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function refresh() {
+  try {
+    SNAP = await api("/api/snapshot");
+    renderPills();
+    renderSwitches();
+    renderRoutes();
+    renderTunnels();
+    renderTimeline();
+    renderGroups();
+    if (SEL) await selectSwitch(SEL, true);
+  } catch (e) { toast("快照失败: " + e.message, true); }
+}
+
+function renderPills() {
+  const s = SNAP.stats, topo = SNAP.topology;
+  const pills = [
+    ["帐篷", topo.tents],
+    ["交换机", `${s.switchesUp}/${s.switchesTotal}`],
+    ["设备", s.devices],
+    ["虚拟网络", topo.vns],
+    ["冗余组", topo.groups],
+    ["隧道", s.tunnels],
+    ["路由", s.routes],
+    ["收敛轮次", `${s.rounds}（最近 ${s.lastRounds}）`],
+    ["ARP 代答", `${s.arpAnswered}/${s.arpRequests}`],
+    ["广播帧", `${s.broadcasts}（抑制 ${s.broadcastSuppressed}）`],
+    ["省下的泛洪", s.arpFloodAvoided],
+    ["已拒绝路由", s.rejectedRoutes],
+  ];
+  const box = $("#pills"); box.textContent = "";
+  for (const [k, v] of pills) {
+    const p = el("span", "pill"); p.append(k + " "); p.append(el("b", "", String(v))); box.append(p);
+  }
+  const ok = el("span", "pill " + (s.failures === 0 ? "ok" : "bad"));
+  ok.append("校验 "); ok.append(el("b", "", s.failures === 0 ? "通过" : `${s.failures} 失败`));
+  box.append(ok);
+}
+
+function renderSwitches() {
+  const box = $("#switches"); box.textContent = "";
+  const f = $("#sw-filter").value.trim().toLowerCase();
+  let n = 0;
+  for (const sw of SNAP.switches) {
+    if (f && !sw.id.toLowerCase().includes(f)) continue;
+    n++;
+    const b = el("button", (sw.up ? "up" : "down") + (sw.id === SEL ? " active" : ""), sw.id);
+    b.title = `tent ${sw.tent} · ${sw.vns.length} VN · ${sw.portsOpen ? "端口开放" : "端口关闭"}`;
+    b.onclick = () => selectSwitch(sw.id);
+    box.append(b);
+  }
+  $("#sw-count").textContent = `${n} 台`;
+}
+
+async function selectSwitch(id, keepScroll) {
+  SEL = id;
+  renderSwitches();
+  const sw = SNAP.switches.find((x) => x.id === id);
+  if (!sw) return;
+  const d = $("#switch-detail"); d.textContent = "";
+  const head = el("div", "kv");
+  const rd = Object.entries(sw.rdByVn).map(([k, v]) => `${k}→${v}`).join("<br>");
+  head.innerHTML = `
+    <span class="k">交换机</span><span><b>${sw.id}</b> · 帐篷 ${sw.tent}</span>
+    <span class="k">状态</span><span>${sw.up ? '<span class="ok">在线</span>' : '<span class="bad">离线</span>'} · ${sw.portsOpen ? '<span class="ok">端口开放</span>' : '<span class="warn">端口关闭（等待收敛）</span>'} · epoch ${sw.epoch}</span>
+    <span class="k">Loopback</span><span>${sw.loopback}</span>
+    <span class="k">RD</span><span>${rd || "—"}</span>
+    <span class="k">冗余组</span><span>${(sw.groups || []).join(", ") || "—"}</span>
+    <span class="k">陈旧路由</span><span>${sw.staleRoutes} · 已拒绝 ${sw.rejectedRoutes}</span>`;
+  d.append(head);
+
+  const tabs = el("div", "toolbar");
+  tabs.style.marginTop = "10px";
+  for (const [key, label] of [["hosts", `地址表 (${sw.hosts.length})`], ["routes", `路由 (${sw.routes.length})`], ["tunnels", `隧道 (${sw.tunnels.length})`]]) {
+    const b = el("button", sw._tab === key ? "primary" : "", label);
+    b.onclick = () => { sw._tab = key; selectSwitch(id, true); };
+    tabs.append(b);
+  }
+  d.append(tabs);
+
+  const tab = sw._tab || "hosts";
+  if (tab === "hosts") {
+    const wrap = el("div", "scroll");
+    const t = el("table");
+    t.innerHTML = `<thead><tr><th>MAC</th><th>IP</th><th>VN</th><th>来源类型</th><th>来源</th><th>发起</th><th>出口</th></tr></thead>`;
+    const tb = el("tbody");
+    if (!sw.hosts.length) tb.append(el("tr")).append(el("td", "empty", sw.up ? "无地址条目" : "交换机离线"));
+    for (const h of sw.hosts) {
+      const tr = el("tr");
+      tr.innerHTML = `<td>${h.mac}</td><td>${h.ip || "—"}</td><td>${h.vn}</td>
+        <td><span class="tag t-${h.type}">${h.type}</span></td>
+        <td>${h.local ? '<span class="ok">本地</span>' : h.source}</td>
+        <td>${h.origin}</td><td>${h.local ? "本地端口" : h.egress}${h.external ? ' <span class="tag t-prefix">external</span>' : ""}</td>`;
+      tb.append(tr);
+    }
+    t.append(tb); wrap.append(t); d.append(wrap);
+  } else if (tab === "routes") {
+    const wrap = el("div", "scroll");
+    const t = el("table");
+    t.innerHTML = `<thead><tr><th>类型</th><th>VN</th><th>RD</th><th>RT</th><th>来源</th><th>发起</th><th>目的</th><th>学习自</th></tr></thead>`;
+    const tb = el("tbody");
+    for (const r of sw.routes) {
+      const tr = el("tr");
+      const dst = r.mac || r.prefix || r.group || (r.type === "member" ? `member vn${r.vn}` : "—");
+      tr.innerHTML = `<td><span class="tag t-${r.type}">${r.type}</span>${r.stale ? ' <span class="bad">stale</span>' : ""}</td>
+        <td>${r.vn}</td><td class="muted">${r.rd}</td><td class="muted">${(r.rts || []).join(" ")}</td>
+        <td>${r.source}</td><td>${r.origin}</td><td>${dst}</td><td>${r.learnedFrom || "local"}</td>`;
+      tb.append(tr);
+    }
+    t.append(tb); wrap.append(t); d.append(wrap);
+  } else {
+    const wrap = el("div", "scroll");
+    const t = el("table");
+    t.innerHTML = `<thead><tr><th>远端</th><th>VN</th><th>下一跳</th><th>物理路径</th><th>状态</th></tr></thead>`;
+    const tb = el("tbody");
+    for (const tn of sw.tunnels) {
+      const tr = el("tr");
+      tr.innerHTML = `<td>${tn.remote}</td><td>${tn.vn}</td><td>${tn.nextHop}</td>
+        <td class="muted">${tn.path.join(" → ")}</td>
+        <td>${tn.up ? '<span class="ok">up</span>' : '<span class="bad">down</span>'}</td>`;
+      tb.append(tr);
+    }
+    t.append(tb); wrap.append(t); d.append(wrap);
+  }
+}
+
+function allRoutes() {
+  const out = [];
+  for (const sw of SNAP.switches) for (const r of sw.routes) out.push({ sw: sw.id, ...r });
+  return out;
+}
+
+function renderRoutes() {
+  const type = $("#route-type").value;
+  const f = $("#route-filter").value.trim().toLowerCase();
+  const tb = $("#routes"); tb.textContent = "";
+  let n = 0;
+  for (const r of allRoutes()) {
+    if (type && r.type !== type) continue;
+    const dst = (r.mac || r.prefix || r.group || (r.type === "member" ? "member" : "")).toLowerCase();
+    const hay = `${r.sw} ${r.origin} ${dst} ${r.vn} ${r.source}`;
+    if (f && !hay.includes(f)) continue;
+    n++;
+    if (n > 700) break;
+    const tr = el("tr");
+    const dest = r.mac || r.prefix || r.group || (r.type === "member" ? `vn ${r.vn}` : "—");
+    tr.innerHTML = `<td><span class="tag t-${r.type}">${r.type}</span></td><td>${r.vn}</td>
+      <td class="muted">${r.rd}</td><td class="muted">${(r.rts || []).join(" ")}</td>
+      <td>${r.source}${r.stale ? ' <span class="bad">stale</span>' : ""}</td>
+      <td>${r.origin}</td><td>${dest}${r.devices ? ` <span class="muted">(${r.devices} 台)</span>` : ""}</td>
+      <td class="muted">${r.seq}/${r.epoch}</td><td>${r.learnedFrom || "local"}</td>`;
+    tb.append(tr);
+  }
+  if (!n) { const tr = el("tr"); const td = el("td", "empty", "没有匹配的路由"); td.colSpan = 9; tr.append(td); tb.append(tr); }
+  $("#route-count").textContent = `${n} 条（最多显示 700）`;
+}
+
+function renderTunnels() {
+  const f = $("#tun-filter").value.trim().toLowerCase();
+  const tb = $("#tunnels"); tb.textContent = "";
+  let n = 0;
+  for (const sw of SNAP.switches) for (const tn of sw.tunnels) {
+    const hay = `${tn.local} ${tn.remote} ${tn.vn} ${tn.nextHop}`;
+    if (f && !hay.includes(f)) continue;
+    n++;
+    if (n > 600) break;
+    const tr = el("tr");
+    tr.innerHTML = `<td>${tn.local}</td><td>${tn.remote}</td><td>${tn.vn}</td><td>${tn.nextHop}</td>
+      <td class="num">${tn.hops}</td><td class="muted">${tn.path.join(" → ")}</td>
+      <td>${tn.up ? '<span class="ok">up</span>' : '<span class="bad">down</span>'}</td>
+      <td><button data-tun="${tn.local}|${tn.remote}">断/恢复</button></td>`;
+    tr.querySelector("button").onclick = () => toggleLink(tn);
+    tb.append(tr);
+  }
+  if (!n) { const tr = el("tr"); const td = el("td", "empty", "没有匹配的隧道"); td.colSpan = 8; tr.append(td); tb.append(tr); }
+  $("#tun-count").textContent = `${n} 条`;
+}
+
+function renderTimeline() {
+  const box = $("#timeline"); box.textContent = "";
+  const evs = SNAP.timeline;
+  if (!evs.length) { box.append(el("div", "empty", "暂无事件")); return; }
+  for (const e of evs) {
+    const d = el("div", "ev " + e.kind);
+    const k = el("span", "k", `#${e.seq}`);
+    const kind = el("span", "k", e.kind);
+    let txt = "";
+    if (e.kind === "move") txt = `${e.mac}：${e.from} → ${e.to}`;
+    else if (e.group) txt = `${e.group}${e.switch ? " / " + e.switch : ""}${e.detail ? " · " + e.detail : ""}`;
+    else if (e.switch) txt = `${e.switch}${e.detail ? " · " + e.detail : ""}`;
+    else if (e.from && e.to) txt = `${e.from} ↔ ${e.to}`;
+    else txt = e.detail || "";
+    const det = el("span", "d", txt);
+    d.append(k, kind, det);
+    box.append(d);
+  }
+}
+
+function renderGroups() {
+  const box = $("#group-panel"); box.textContent = "";
+  const t = el("table");
+  t.innerHTML = `<thead><tr><th>冗余组</th><th>成员</th><th>接入链路</th><th class="num">设备</th><th></th></tr></thead>`;
+  const tb = el("tbody");
+  for (const g of SNAP.groups) {
+    const tr = el("tr");
+    const acc = g.members.map((m) => `${m}:${g.accessUp[m] ? '<span class="ok">up</span>' : '<span class="bad">down</span>'}`).join(" · ");
+    tr.innerHTML = `<td>${g.id}</td><td>${g.members.join(" + ")}</td><td>${acc}</td><td class="num">${g.devices.length}</td>
+      <td><button data-group="${g.id}">选中</button></td>`;
+    tr.querySelector("button").onclick = () => {
+      TRACE_GROUP = g;
+      $("#btn-group-down").disabled = false;
+      $("#btn-group-up").disabled = false;
+      toast(`已选冗余组 ${g.id}（成员 ${g.members.join(" + ")}，${g.devices.length} 台设备）`);
+    };
+    tb.append(tr);
+  }
+  t.append(tb); box.append(t);
+}
+
+async function toggleLink(tn) {
+  const up = !tn.up;
+  await act({ action: up ? "link-up" : "link-down", from: tn.local, to: tn.remote });
+}
+
+async function act(payload) {
+  try {
+    const r = await api("/api/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (r.changed) {
+      let msg = `已变更：${r.detail} · 收敛 ${r.rounds} 轮`;
+      if (r.verify) msg += ` · 校验 ${r.verify.checked} 对，失败 ${r.verify.failed}`;
+      toast(msg, r.verify && r.verify.failed > 0);
+    } else {
+      toast(`无变化：${r.detail || payload.action}`);
+    }
+    await refresh();
+  } catch (e) { toast("操作失败: " + e.message, true); }
+}
+
+$("#btn-random").onclick = () => act({ action: "random" });
+$("#btn-restart").onclick = () => {
+  const up = SNAP.switches.filter((s) => s.up);
+  if (!up.length) return;
+  const sw = up[Math.floor(Math.random() * up.length)].id;
+  act({ action: "switch-down", switch: sw }).then(() => act({ action: "switch-up", switch: sw }));
+};
+$("#btn-move").onclick = () => act({ action: "move-random", count: 4 });
+$("#btn-verify").onclick = async () => {
+  try {
+    const r = await api("/api/verify");
+    toast(`全量校验：${r.checked} 对，失败 ${r.failed}，环路 ${r.loopErrors}，广播 ${r.broadcasts}，ARP ${r.arpAnswered}/${r.arpRequests}`, r.failed > 0);
+    await refresh();
+  } catch (e) { toast("校验失败: " + e.message, true); }
+};
+$("#btn-refresh").onclick = refresh;
+$("#sw-filter").oninput = renderSwitches;
+$("#route-type").onchange = renderRoutes;
+$("#route-filter").oninput = renderRoutes;
+$("#tun-filter").oninput = renderTunnels;
+
+$("#btn-group-down").onclick = async () => {
+  if (!TRACE_GROUP) return;
+  const g = SNAP.groups.find((x) => x.id === TRACE_GROUP.id) || TRACE_GROUP;
+  const up = g.members.find((m) => g.accessUp[m]);
+  if (!up) { toast("该组没有可断的接入链路", true); return; }
+  await act({ action: "access-down", group: g.id, switch: up });
+};
+$("#btn-group-up").onclick = async () => {
+  if (!TRACE_GROUP) return;
+  const g = SNAP.groups.find((x) => x.id === TRACE_GROUP.id) || TRACE_GROUP;
+  const down = g.members.find((m) => !g.accessUp[m]);
+  if (!down) { toast("该组没有断开的接入链路", true); return; }
+  await act({ action: "access-up", group: g.id, switch: down });
+};
+
+$("#btn-trace").onclick = async () => {
+  const src = $("#trace-src").value.trim(), dst = $("#trace-dst").value.trim();
+  if (!src || !dst) { toast("请输入两端设备的 MAC 或 IP", true); return; }
+  try {
+    const r = await api(`/api/trace?src=${encodeURIComponent(src)}&dst=${encodeURIComponent(dst)}`);
+    renderTrace(r);
+  } catch (e) { toast("追踪失败: " + e.message, true); }
+};
+
+function renderTrace(r) {
+  const box = $("#trace-result"); box.textContent = "";
+  if (!r.result) { box.append(el("div", "empty", r.note || "不可追踪")); return; }
+  const res = r.result;
+  const head = el("div");
+  head.innerHTML = `<div class="kv">
+    <span class="k">源</span><span>${r.src.mac} · ${r.src.ip} · VN ${r.src.vn} · ${r.src.kind}${r.src.group ? " / " + r.src.group : ""}</span>
+    <span class="k">目的</span><span>${r.dst.mac} · ${r.dst.ip} · VN ${r.dst.vn} · ${r.dst.kind}${r.dst.group ? " / " + r.dst.group : ""}</span>
+    <span class="k">结果</span><span>${res.ok ? '<span class="ok">一致</span>' : '<span class="bad">不一致</span>'}${res.note ? " · " + res.note : ""}</span>
+    <span class="k">物理路径</span><span class="muted">${(res.physical || []).join(" → ") || "—"}</span>
+    <span class="k">广播</span><span>${res.broadcasts} 次${res.broadcasts === 0 ? ' <span class="ok">（本地代答，未广播）</span>' : ""}</span>
+  </div>`;
+  box.append(head);
+  const path = el("div", "path");
+  res.path.forEach((h, i) => {
+    if (i) path.append(el("span", "arrow", "→"));
+    path.append(el("span", "node" + (h.access ? " egress" : ""), h.access ? h.switch + "（接入端口）" : h.switch));
+  });
+  box.append(path);
+}
+
+refresh();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>
